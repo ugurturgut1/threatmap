@@ -107,10 +107,14 @@ class Geo:
 
     def locate(self, ip, cc=None):
         cc = cc or self.country(ip)
+        try:
+            n = int(ipaddress.ip_address(ip))  # v4 or v6 (AbuseIPDB lists both)
+        except ValueError:
+            return cc, None, None
         if cc not in self.centroids:
             return cc, None, None
         lat, lng = self.centroids[cc]
-        h = int(ipaddress.IPv4Address(ip)) * 2654435761 % 2**32  # stable spread inside the country
+        h = n * 2654435761 % 2**32  # stable spread inside the country
         return cc, round(lat + ((h & 0xFFFF) / 0xFFFF - 0.5) * 6, 3), round(lng + ((h >> 16) / 0xFFFF - 0.5) * 8, 3)
 
     def cc_for_name(self, name):
@@ -431,6 +435,8 @@ def selftest():
     assert cc == "AU" and abs(lat + 25) <= 3 and abs(lng - 134) <= 4
     assert geo.locate("10.0.0.1") == ("XX", None, None)
     assert geo.locate("10.0.0.1", "AU")[0] == "AU"  # caller-supplied country wins
+    assert geo.locate("2604:2dc0:101:100::1ed5", "AU")[1] is not None  # IPv6 with a known country
+    assert geo.locate("example.com")[1] is None and geo.locate("example.com", "AU")[1] is None
     assert geo.cc_for_name("Australia") == "AU" and geo.cc_for_name("United States") == "US"
     sq = {"type": "Feature", "properties": {"ISO_A2": "-99", "ISO_A2_EH": "FR", "NAME": "France"},
           "geometry": {"type": "Polygon", "coordinates": [[[0, 40], [10, 40], [10, 50], [0, 50]]]}}
