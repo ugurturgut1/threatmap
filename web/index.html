@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THREATMAP // global threat grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2"></script>
+<style>
+  :root {
+    --bg: #04050a; --panel: rgba(8, 12, 24, .72); --line: rgba(0, 240, 255, .25);
+    --cyan: #00f0ff; --mag: #ff2a6d; --yel: #f5d300; --grn: #05ffa1; --pur: #b967ff; --txt: #c8d3f5; --dim: #5b6a92;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--txt); font: 12px/1.45 "JetBrains Mono", monospace; overflow: hidden; }
+  #globe { position: fixed; inset: 0; }
+  /* CRT scanlines + vignette */
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px),
+                radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.75)); }
+  .hud { position: fixed; z-index: 10; pointer-events: none; }
+  .hud > * { pointer-events: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    padding: 12px 14px; box-shadow: inset 0 0 30px rgba(0,240,255,.05); }
+  h2 { font: 700 10px Orbitron, sans-serif; letter-spacing: .25em; color: var(--cyan); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  h2 small { color: var(--dim); letter-spacing: .1em; font-family: "JetBrains Mono"; font-weight: 400; }
+
+  #top { top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 24px; padding: 14px 22px;
+    background: linear-gradient(180deg, rgba(4,5,10,.95), transparent); }
+  .logo { font: 900 22px Orbitron, sans-serif; letter-spacing: .18em; color: #fff; position: relative;
+    text-shadow: 0 0 8px var(--cyan), 0 0 22px rgba(0,240,255,.5); animation: flicker 6s infinite; }
+  .logo span { color: var(--mag); text-shadow: 0 0 10px var(--mag); }
+  .logo::before, .logo::after { content: attr(data-t); position: absolute; inset: 0; opacity: .7; }
+  .logo::before { color: var(--mag); animation: glitch 3.5s infinite steps(1); clip-path: inset(0 0 60% 0); }
+  .logo::after { color: var(--cyan); animation: glitch 2.7s infinite reverse steps(1); clip-path: inset(55% 0 0 0); }
+  @keyframes glitch { 0%,92%,100% { transform: none; } 93% { transform: translate(-3px,1px); } 96% { transform: translate(3px,-1px); } }
+  @keyframes flicker { 0%,97%,100% { opacity: 1; } 98% { opacity: .55; } 99% { opacity: .9; } }
+  .sub { color: var(--dim); font-size: 10px; letter-spacing: .2em; }
+  .spacer { flex: 1; }
+  .badge { font: 700 11px Orbitron; letter-spacing: .15em; padding: 6px 12px; border: 1px solid currentColor; }
+  #clock { font: 600 16px "JetBrains Mono"; color: var(--cyan); letter-spacing: .1em; }
+  .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--mag); margin-right: 6px;
+    box-shadow: 0 0 8px var(--mag); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .2; } }
+
+  #left { top: 78px; left: 18px; bottom: 74px; width: 380px; display: flex; flex-direction: column; }
+  #left .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #feed { list-style: none; overflow: hidden; flex: 1; mask-image: linear-gradient(180deg, #000 75%, transparent); }
+  #feed li { display: grid; grid-template-columns: 62px 74px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px dashed rgba(91,106,146,.18);
+    animation: slidein .35s ease-out; white-space: nowrap; }
+  #feed li .d { overflow: hidden; text-overflow: ellipsis; }
+  @keyframes slidein { from { opacity: 0; transform: translateX(-12px); background: rgba(0,240,255,.12); } }
+  .t { color: var(--dim); }
+  .tag { font: 700 9px Orbitron; letter-spacing: .08em; text-align: center; padding: 2px 0; border: 1px solid currentColor; align-self: center; }
+  .ATTACK { color: var(--mag); } .BLOCKED { color: var(--cyan); } .BANNED { color: var(--yel); }
+  .C2 { color: var(--pur); } .TAKEDOWN { color: var(--grn); } .KEV { color: #ff9e3d; }
+
+  #right { top: 78px; right: 18px; bottom: 74px; width: 320px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat b { display: block; font: 700 22px Orbitron; color: #fff; }
+  .stat span { color: var(--dim); font-size: 10px; letter-spacing: .12em; }
+  .bars div { display: grid; grid-template-columns: 22px 1fr 58px; gap: 8px; align-items: center; margin: 5px 0; }
+  .bars i { display: block; height: 6px; background: linear-gradient(90deg, var(--mag), var(--pur)); box-shadow: 0 0 8px rgba(255,42,109,.5); }
+  .bars.ports i { background: linear-gradient(90deg, var(--cyan), var(--pur)); box-shadow: 0 0 8px rgba(0,240,255,.4); }
+  .bars em { font-style: normal; color: var(--dim); text-align: right; }
+  .bars .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #bottom { left: 18px; right: 18px; bottom: 14px; display: flex; gap: 12px; align-items: stretch; }
+  #ticker { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; display: flex; align-items: center; }
+  #ticker .lab { font: 700 10px Orbitron; color: #ff9e3d; letter-spacing: .2em; padding-right: 14px; flex: none; }
+  #ticker .win { overflow: hidden; flex: 1; }
+  #ticker .run { display: inline-block; animation: run 160s linear infinite; }
+  #ticker .run b { color: #fff; font-weight: 600; } #ticker .run .rw { color: var(--mag); }
+  @keyframes run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .ctrl { display: flex; gap: 6px; align-items: center; }
+  button { font: 700 10px Orbitron; letter-spacing: .1em; background: transparent; color: var(--cyan); border: 1px solid var(--line);
+    padding: 7px 10px; cursor: pointer; }
+  button:hover, button.on { background: rgba(0,240,255,.14); border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,240,255,.35); }
+  button:focus-visible { outline: 2px solid var(--yel); }
+  #status { color: var(--dim); font-size: 10px; align-self: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: var(--dim); margin-top: 8px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
+  .note { color: var(--dim); font-size: 10px; margin-top: 8px; }
+  .glabel { font: 11px "JetBrains Mono"; background: rgba(4,5,10,.9); border: 1px solid var(--cyan); padding: 6px 8px; color: var(--txt); }
+  @media (max-width: 1100px) { #left { width: 300px; } #right { width: 260px; } }
+  @media (max-width: 820px) { #left { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .logo, .logo::before, .logo::after, .live, #ticker .run { animation: none; } }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<header id="top" class="hud">
+  <div>
+    <div class="logo" data-t="THREAT//MAP">THREAT<span>//</span>MAP</div>
+    <div class="sub">GLOBAL THREAT GRID · ATTACK / DEFENCE TELEMETRY</div>
+  </div>
+  <div class="spacer"></div>
+  <div><span class="live"></span><span class="sub">LIVE REPLAY</span></div>
+  <div class="badge" id="infocon" title="SANS ISC Infocon level">INFOCON —</div>
+  <div id="clock">--:--:-- UTC</div>
+</header>
+
+<aside id="left" class="hud">
+  <div class="panel">
+    <h2>EVENT STREAM <small id="rate">0 ev/s</small></h2>
+    <ul id="feed" aria-live="off"></ul>
+    <div class="legend">
+      <span><i style="background:var(--mag)"></i>attack</span><span><i style="background:var(--cyan)"></i>blocked</span>
+      <span><i style="background:var(--yel)"></i>auto-ban</span><span><i style="background:var(--pur)"></i>botnet C2</span>
+      <span><i style="background:var(--grn)"></i>C2 takedown</span><span><i style="background:#ff9e3d"></i>KEV advisory</span>
+    </div>
+  </div>
+</aside>
+
+<aside id="right" class="hud">
+  <div class="panel">
+    <h2>DEFENCE GRID <small>SIM</small></h2>
+    <div class="stats">
+      <div class="stat"><b id="sAtt">0</b><span>INTRUSIONS</span></div>
+      <div class="stat"><b id="sBlk">0</b><span>BLOCKED</span></div>
+      <div class="stat"><b id="sBan">0</b><span>IPS BANNED</span></div>
+      <div class="stat"><b id="sRate">0%</b><span>BLOCK RATE</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>TOP SOURCES <small>DSHIELD · 24H</small></h2>
+    <div class="bars" id="countries"></div>
+  </div>
+  <div class="panel">
+    <h2>TARGETED PORTS <small>DSHIELD · 24H</small></h2>
+    <div class="bars ports" id="ports"></div>
+  </div>
+  <div class="panel">
+    <h2>BOTNET C2 <small>FEODO</small></h2>
+    <div id="c2sum" class="sub"></div>
+  </div>
+</aside>
+
+<footer id="bottom" class="hud">
+  <div class="panel" id="ticker"><span class="lab">CISA KEV</span><span class="win"><span class="run" id="kev">loading…</span></span></div>
+  <div class="panel ctrl">
+    <button id="pause" aria-pressed="false">PAUSE</button>
+    <button data-speed="1" class="on">1×</button><button data-speed="3">3×</button><button data-speed="8">8×</button>
+    <button id="rot" class="on" aria-pressed="true">ORBIT</button>
+  </div>
+  <div class="panel" id="status">connecting…</div>
+</footer>
+
+<script>
+// Real data: attacker IPs + volumes, targeted ports (SANS DShield), C2 servers (abuse.ch Feodo), KEV (CISA).
+// Simulated: event timing (replayed from daily volumes), defended assets, and the firewall's block/ban decisions.
+const COL = { ATTACK: '#ff2a6d', BLOCKED: '#00f0ff', BANNED: '#f5d300', C2: '#b967ff', TAKEDOWN: '#05ffa1', KEV: '#ff9e3d' };
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+const ASSETS = [
+  ['LDN-01', 51.51, -0.13], ['FRA-02', 50.11, 8.68], ['NYC-03', 40.71, -74.0], ['IAD-04', 39.04, -77.49],
+  ['GRU-05', -23.55, -46.63], ['SIN-06', 1.35, 103.82], ['TYO-07', 35.68, 139.69], ['SYD-08', -33.87, 151.21],
+  ['JNB-09', -26.2, 28.05], ['BOM-10', 19.08, 72.88],
+].map(([name, lat, lng], i) => ({ name, lat, lng, intel: i % 2 === 0 })); // intel: subscribes to the DShield blocklist
+const PORTS = { 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS', 80: 'HTTP', 81: 'HTTP-alt', 123: 'NTP', 161: 'SNMP', 443: 'HTTPS',
+  445: 'SMB', 1433: 'MSSQL', 2222: 'SSH-alt', 3306: 'MySQL', 3389: 'RDP', 5060: 'SIP', 5555: 'ADB', 5900: 'VNC', 6379: 'Redis',
+  7547: 'TR-069', 8000: 'HTTP-alt', 8080: 'HTTP-proxy', 8443: 'HTTPS-alt', 8888: 'HTTP-alt', 9200: 'Elastic', 27017: 'MongoDB',
+  37215: 'Huawei-RCE', 52869: 'UPnP' };
+const DETECT_AFTER = 3, BAN_MS = 4 * 60e3, BASE_RATE = 4; // events/sec at 1x
+const regionName = new Intl.DisplayNames(['en'], { type: 'region' });
+const country = cc => { try { return regionName.of(cc); } catch { return cc; } };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
+
+let S = null, speed = 1, paused = false, arcs = [], rings = [], evCount = 0;
+const firewall = new Map(); // ip -> { n, until }
+const tally = { att: 0, blk: 0, ban: 0 };
+
+// ---------- globe ----------
+const globe = Globe({ animateIn: true })($('globe'))
+  .backgroundColor('#04050a')
+  .showAtmosphere(true).atmosphereColor('#00f0ff').atmosphereAltitude(0.2)
+  .hexPolygonResolution(3).hexPolygonMargin(0.35).hexPolygonUseDots(true)
+  .hexPolygonColor(() => 'rgba(0, 240, 255, 0.55)')
+  .arcColor(d => d.colors).arcStroke(d => d.stroke).arcAltitudeAutoScale(0.45)
+  .arcsTransitionDuration(0) // default 1s grow-in restarts on every data update, which hides all arcs
+  .arcDashLength(0.5).arcDashGap(2).arcDashInitialGap(1).arcDashAnimateTime(1200)
+  .ringColor(d => t => rgba(d.color, 1 - t))
+  .ringMaxRadius(d => d.r).ringPropagationSpeed(d => d.speed).ringRepeatPeriod(d => d.period)
+  .pointAltitude(d => d.alt).pointRadius(d => d.rad).pointColor(d => d.color).pointsMerge(false)
+  .pointLabel(d => `<div class="glabel">${d.label}</div>`)
+  .labelsData(ASSETS).labelText('name').labelSize(1.3).labelDotRadius(0.6).labelColor(() => '#05ffa1')
+  .labelResolution(2).labelAltitude(0.01).labelLabel(d => `<div class="glabel">DEFENDED ASSET ${d.name}<br>${d.intel ? 'threat-intel blocklist: ON' : 'reactive firewall only'}<br><span style="color:#5b6a92">simulated</span></div>`);
+const mat = globe.globeMaterial();
+mat.color.set('#060a16'); mat.emissive.set('#02050d'); mat.shininess = 0.6;
+globe.controls().autoRotate = true; globe.controls().autoRotateSpeed = 0.35;
+globe.pointOfView({ lat: 30, lng: 10, altitude: 2.3 });
+addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
+
+fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+  .then(r => r.json()).then(g => globe.hexPolygonsData(g.features.filter(f => f.properties.ISO_A2 !== 'AQ')));
+
+function setPoints() {
+  const pts = S.attackers.map(a => ({ lat: a.lat, lng: a.lng, color: 'rgba(255,42,109,.7)', rad: 0.22,
+    alt: 0.002 + Math.log10(a.reports + 1) * 0.003,
+    label: `<b style="color:#ff2a6d">ATTACKER ${esc(a.ip)}</b><br>${esc(country(a.cc))}<br>${fmt(a.reports)} reports · ${a.targets} sensors` }))
+  .concat(S.c2.map(c => ({ lat: c.lat, lng: c.lng, color: c.status === 'online' ? '#b967ff' : '#05ffa1', rad: 0.5, alt: 0.03,
+    label: `<b style="color:${c.status === 'online' ? '#b967ff' : '#05ffa1'}">${esc(c.malware)} C2 · ${esc(c.status.toUpperCase())}</b><br>${esc(c.ip)}:${c.port}<br>${esc(c.as || '')} · ${esc(country(c.cc))}<br>last online ${esc(c.last_online || '?')}` })));
+  globe.pointsData(pts);
+}
+
+// ---------- simulation ----------
+function weighted(list, key) { // sqrt-weighted so a few mega-scanners don't drown everything
+  let total = 0; for (const x of list) total += (x._w ??= Math.sqrt(x[key]));
+  let r = Math.random() * total;
+  for (const x of list) if ((r -= x._w) <= 0) return x;
+  return list[list.length - 1];
+}
+
+function emit(kind, html, now) {
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="t">${new Date(now).toISOString().slice(11, 19)}</span><span class="tag ${kind}">${kind}</span><span class="d">${html}</span>`;
+  const feed = $('feed'); feed.prepend(li);
+  while (feed.children.length > 60) feed.lastChild.remove();
+  evCount++;
+}
+
+function attack(now) {
+  const a = weighted(S.attackers, 'reports'), p = weighted(S.ports, 'records');
+  const t = ASSETS[Math.floor(Math.random() * ASSETS.length)];
+  const fw = firewall.get(a.ip) || { n: 0, until: 0 };
+  let kind;
+  if (t.intel || now < fw.until) kind = 'BLOCKED';
+  else if (++fw.n >= DETECT_AFTER) { kind = 'BANNED'; fw.n = 0; fw.until = now + BAN_MS; }
+  else kind = 'ATTACK';
+  firewall.set(a.ip, fw);
+  const svc = PORTS[p.port] || 'tcp';
+  const where = `${esc(a.ip)} <span class="t">${esc(a.cc)}</span> → ${t.name}:${p.port}/${svc}`;
+  if (kind === 'ATTACK') tally.att++;
+  if (kind === 'BLOCKED') tally.blk++;
+  if (kind === 'BANNED') { tally.ban++; tally.att++; }
+  emit(kind, kind === 'BANNED' ? `auto-ban ${esc(a.ip)} @ ${t.name} (${BAN_MS / 60e3}m)` : where + (kind === 'BLOCKED' ? (t.intel ? ' · intel' : ' · banned') : ''), now);
+
+  const c = COL[kind];
+  const blocked = kind === 'BLOCKED';
+  arcs.push({ startLat: a.lat, startLng: a.lng, endLat: t.lat, endLng: t.lng, colors: [rgba(c, 0.05), rgba(c, 0.95)], stroke: blocked ? 0.35 : 0.7, die: now + 2400 });
+  rings.push({ lat: t.lat, lng: t.lng, color: c, r: kind === 'BANNED' ? 7 : blocked ? 2.5 : 4, speed: 4, period: 900, die: now + 1500 });
+  dirty = true;
+}
+
+function c2event(now) {
+  if (!S.c2.length) return;
+  const c = S.c2[Math.floor(Math.random() * S.c2.length)];
+  const kind = c.status === 'online' ? 'C2' : 'TAKEDOWN';
+  emit(kind, kind === 'C2' ? `${esc(c.malware)} C2 active ${esc(c.ip)}:${c.port} (${esc(c.cc)})`
+                            : `${esc(c.malware)} C2 ${esc(c.ip)} offline since ${esc(c.last_online || '?')}`, now);
+  rings.push({ lat: c.lat, lng: c.lng, color: COL[kind], r: 9, speed: 3, period: 700, die: now + 4000 });
+  dirty = true;
+}
+
+let dirty = false, acc = 0, lastFrame = performance.now(), nextC2 = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastFrame, 250); lastFrame = ts;
+  const now = Date.now();
+  if (S && S.attackers.length && !paused) {
+    acc += dt / 1000 * BASE_RATE * speed * (0.6 + Math.random() * 0.8);
+    while (acc >= 1) { attack(now); acc--; }
+    if (now > nextC2) { c2event(now); nextC2 = now + 6000 / speed + Math.random() * 6000; }
+  }
+  // ponytail: full array rebuild on change is fine at <~150 arcs; switch to keyed updates if speed goes way up
+  const na = arcs.filter(a => a.die > now), nr = rings.filter(r => r.die > now);
+  if (dirty || na.length !== arcs.length || nr.length !== rings.length) {
+    arcs = na; rings = nr; dirty = false;
+    globe.arcsData(arcs); globe.ringsData(rings);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+setInterval(() => {
+  $('clock').textContent = new Date().toISOString().slice(11, 19) + ' UTC';
+  $('rate').textContent = evCount + ' ev/s'; evCount = 0;
+  const total = tally.att + tally.blk;
+  $('sAtt').textContent = fmt(tally.att); $('sBlk').textContent = fmt(tally.blk); $('sBan').textContent = fmt(tally.ban);
+  $('sRate').textContent = total ? Math.round(tally.blk / total * 100) + '%' : '0%';
+  if (S) $('status').textContent = `feeds ${new Date(S.updated * 1000).toLocaleTimeString()}${S.error ? ' · ⚠ ' + S.error : ''}`;
+}, 1000);
+
+// ---------- panels from real data ----------
+function bars(el, rows, max) {
+  el.innerHTML = rows.map(([k, lbl, v]) => `<div><span>${k}</span><span class="lbl" title="${esc(lbl)}">${esc(lbl)}<i style="width:${Math.max(2, v / max * 100)}%"></i></span><em>${fmt(v)}</em></div>`).join('');
+}
+function flag(cc) { return /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : '··'; }
+
+function render() {
+  const byCc = {};
+  for (const a of S.attackers) byCc[a.cc] = (byCc[a.cc] || 0) + a.reports;
+  const top = Object.entries(byCc).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  bars($('countries'), top.map(([cc, v]) => [flag(cc), country(cc), v]), top[0]?.[1] || 1);
+  const ports = S.ports.slice(0, 6);
+  bars($('ports'), ports.map(p => [':', `${p.port} ${PORTS[p.port] || ''}`, p.records]), ports[0]?.records || 1);
+  const on = S.c2.filter(c => c.status === 'online').length;
+  $('c2sum').innerHTML = `<span style="color:#b967ff">${on} ONLINE</span> · <span style="color:#05ffa1">${S.c2.length - on} TAKEN DOWN</span><br>` +
+    S.c2.slice(0, 4).map(c => `${esc(c.malware)} ${esc(c.ip)} <span style="color:${c.status === 'online' ? '#b967ff' : '#05ffa1'}">${esc(c.status)}</span>`).join('<br>');
+  const ic = S.infocon || 'unknown';
+  const icc = { green: '#05ffa1', yellow: '#f5d300', orange: '#ff9e3d', red: '#ff2a6d' }[ic] || '#5b6a92';
+  $('infocon').textContent = 'INFOCON ' + ic.toUpperCase(); $('infocon').style.color = icc;
+  const items = S.kev.map(v => `<b>${esc(v.cveID)}</b> ${esc(v.vendorProject)} ${esc(v.product)}: ${esc(v.vulnerabilityName)} <span class="t">[added ${esc(v.dateAdded)}]</span>${v.knownRansomwareCampaignUse === 'Known' ? ' <span class="rw">RANSOMWARE</span>' : ''}`).join('   ◆   ');
+  $('kev').innerHTML = `${items}   ◆   <span class="t">${S.kev_total} total known-exploited</span>   ◆   `.repeat(2);
+  setPoints();
+}
+
+let lastUpdated = null, seededKev = false;
+async function refresh() {
+  try {
+    const s = await (await fetch('/api/state', { cache: 'no-store' })).json();
+    if (!s.updated) { $('status').textContent = s.error ? '⚠ ' + s.error : 'waiting for first feed pull…'; return; }
+    if (s.updated !== lastUpdated) {
+      lastUpdated = s.updated; S = s; render();
+      if (!seededKev) { seededKev = true; S.kev.slice(0, 6).reverse().forEach(v => emit('KEV', `${esc(v.cveID)} ${esc(v.vendorProject)} ${esc(v.product)}`, Date.now())); }
+    } else S.error = s.error;
+  } catch (e) { $('status').textContent = '⚠ backend unreachable'; }
+}
+refresh(); setInterval(refresh, 30e3);
+
+// ---------- controls ----------
+$('pause').onclick = e => { paused = !paused; e.target.classList.toggle('on', paused); e.target.setAttribute('aria-pressed', paused); e.target.textContent = paused ? 'RESUME' : 'PAUSE'; };
+document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => {
+  speed = +b.dataset.speed; document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('on', x === b));
+});
+$('rot').onclick = e => { const c = globe.controls(); c.autoRotate = !c.autoRotate; e.target.classList.toggle('on', c.autoRotate); e.target.setAttribute('aria-pressed', c.autoRotate); };
+</script>
+</body>
+</html>
