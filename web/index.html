@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>THREATMAP // global threat grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2"></script>
+<style>
+  :root {
+    --bg: #04050a; --panel: rgba(8, 12, 24, .74); --line: rgba(0, 240, 255, .25);
+    --cyan: #00f0ff; --mag: #ff2a6d; --yel: #f5d300; --grn: #05ffa1; --pur: #b967ff; --org: #ff9e3d; --txt: #c8d3f5; --dim: #5b6a92;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--txt); font: 12px/1.45 "JetBrains Mono", monospace; overflow: hidden; }
+  a { color: var(--cyan); }
+  #globe { position: fixed; inset: 0; }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px),
+                radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.75)); }
+  .hud { position: fixed; z-index: 10; pointer-events: none; }
+  .hud > * { pointer-events: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    padding: 11px 14px; box-shadow: inset 0 0 30px rgba(0,240,255,.05); }
+  h2 { font: 700 10px Orbitron, sans-serif; letter-spacing: .25em; color: var(--cyan); margin-bottom: 7px; display: flex; justify-content: space-between; gap: 8px; }
+  h2 small { color: var(--dim); letter-spacing: .1em; font-family: "JetBrains Mono"; font-weight: 400; }
+  .t, .dim { color: var(--dim); }
+  button, select { font: 700 10px Orbitron; letter-spacing: .1em; background: transparent; color: var(--cyan); border: 1px solid var(--line); padding: 7px 10px; cursor: pointer; }
+  select { font-family: "JetBrains Mono"; letter-spacing: 0; padding: 4px 6px; background: #070b16; }
+  button:hover, button.on { background: rgba(0,240,255,.14); border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,240,255,.35); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--yel); outline-offset: 1px; }
+
+  /* top */
+  #top { top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: linear-gradient(180deg, rgba(4,5,10,.95), transparent); }
+  .logo { font: 900 22px Orbitron, sans-serif; letter-spacing: .18em; color: #fff; position: relative; text-shadow: 0 0 8px var(--cyan), 0 0 22px rgba(0,240,255,.5); animation: flicker 6s infinite; }
+  .logo span { color: var(--mag); text-shadow: 0 0 10px var(--mag); }
+  .logo::before, .logo::after { content: attr(data-t); position: absolute; inset: 0; opacity: .7; }
+  .logo::before { color: var(--mag); animation: glitch 3.5s infinite steps(1); clip-path: inset(0 0 60% 0); }
+  .logo::after { color: var(--cyan); animation: glitch 2.7s infinite reverse steps(1); clip-path: inset(55% 0 0 0); }
+  @keyframes glitch { 0%,92%,100% { transform: none; } 93% { transform: translate(-3px,1px); } 96% { transform: translate(3px,-1px); } }
+  @keyframes flicker { 0%,97%,100% { opacity: 1; } 98% { opacity: .55; } 99% { opacity: .9; } }
+  .sub { color: var(--dim); font-size: 10px; letter-spacing: .2em; }
+  .spacer { flex: 1; }
+  .badge { font: 700 11px Orbitron; letter-spacing: .15em; padding: 6px 10px; border: 1px solid currentColor; white-space: nowrap; }
+  #clock { font: 600 15px "JetBrains Mono"; color: var(--cyan); letter-spacing: .1em; white-space: nowrap; }
+  .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--mag); margin-right: 6px; box-shadow: 0 0 8px var(--mag); animation: pulse 1.2s infinite; }
+  .live.replay { background: var(--yel); box-shadow: 0 0 8px var(--yel); }
+  @keyframes pulse { 50% { opacity: .2; } }
+  #bell b { color: var(--mag); }
+
+  /* left */
+  #left { top: 70px; left: 14px; bottom: 142px; width: 370px; display: flex; flex-direction: column; }
+  #left .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .chips button { padding: 3px 6px; font-size: 8px; opacity: .45; }
+  .chips button.on { opacity: 1; }
+  .filters { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; color: var(--dim); font-size: 10px; }
+  #feed { list-style: none; overflow: hidden; flex: 1; mask-image: linear-gradient(180deg, #000 78%, transparent); }
+  #feed li { display: grid; grid-template-columns: 58px 76px 1fr; gap: 7px; padding: 3px 0; border-bottom: 1px dashed rgba(91,106,146,.18); animation: slidein .35s ease-out; white-space: nowrap; cursor: pointer; }
+  #feed li:hover { background: rgba(0,240,255,.06); }
+  #feed li .d { overflow: hidden; text-overflow: ellipsis; }
+  @keyframes slidein { from { opacity: 0; transform: translateX(-12px); background: rgba(0,240,255,.12); } }
+  .tag { font: 700 8px Orbitron; letter-spacing: .06em; text-align: center; padding: 2px 0; border: 1px solid currentColor; align-self: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 9px; color: var(--dim); margin-top: 6px; }
+  .legend i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; vertical-align: middle; }
+
+  /* right */
+  #right { top: 70px; right: 14px; bottom: 142px; width: 330px; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat b { display: block; font: 700 20px Orbitron; color: #fff; }
+  .stat span { color: var(--dim); font-size: 9px; letter-spacing: .12em; }
+  .ctl { margin-top: 9px; border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 6px; font-size: 10px; }
+  .ctl label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .ctl input[type=range] { width: 130px; accent-color: var(--cyan); }
+  .ctl input[type=checkbox] { accent-color: var(--cyan); }
+  .bars div { display: grid; grid-template-columns: 20px 1fr 52px; gap: 7px; align-items: center; margin: 4px 0; }
+  .bars.wide div { grid-template-columns: 1fr 52px; }
+  .bars i { display: block; height: 5px; background: linear-gradient(90deg, var(--mag), var(--pur)); box-shadow: 0 0 8px rgba(255,42,109,.5); }
+  .bars.c i { background: linear-gradient(90deg, var(--cyan), var(--pur)); box-shadow: 0 0 8px rgba(0,240,255,.4); }
+  .bars.g i { background: linear-gradient(90deg, var(--grn), var(--cyan)); box-shadow: 0 0 8px rgba(5,255,161,.4); }
+  .bars.o i { background: linear-gradient(90deg, var(--org), var(--mag)); }
+  .bars em { font-style: normal; color: var(--dim); text-align: right; }
+  .bars .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list { font-size: 10px; display: grid; gap: 5px; }
+  .list > a, .list > div { text-decoration: none; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .list > a:hover { color: var(--cyan); }
+  .pill { color: var(--pur); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+  .tabs button { padding: 3px 6px; font-size: 8px; }
+
+  /* bottom */
+  #bottom { left: 14px; right: 14px; bottom: 10px; display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto; gap: 8px; }
+  #timeline { grid-column: 1 / -1; padding: 8px 14px 6px; }
+  #tl { width: 100%; height: 38px; display: block; cursor: crosshair; }
+  #tlmeta { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim); margin-top: 2px; }
+  #ticker { min-width: 0; overflow: hidden; white-space: nowrap; display: flex; align-items: center; }
+  #ticker .lab { font: 700 10px Orbitron; color: var(--org); letter-spacing: .2em; padding-right: 14px; flex: none; }
+  #ticker .win { overflow: hidden; flex: 1; }
+  #ticker .run { display: inline-block; animation: run 180s linear infinite; }
+  #ticker .run b { color: #fff; font-weight: 600; } #ticker .run .rw { color: var(--mag); }
+  @keyframes run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .ctrl { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  #status { color: var(--dim); font-size: 9px; align-self: center; white-space: nowrap; }
+
+  /* drawer */
+  #drawer { position: fixed; top: 70px; right: 14px; bottom: 142px; width: 360px; z-index: 30; transform: translateX(110%); transition: transform .25s ease; overflow-y: auto; }
+  #drawer.open { transform: none; }
+  #drawer .panel { min-height: 100%; background: rgba(6, 9, 18, .96); }
+  #drawer dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 11px; }
+  #drawer dt { color: var(--dim); } #drawer dd { overflow-wrap: anywhere; }
+  #drawer .big { font: 700 16px Orbitron; color: #fff; margin: 2px 0 10px; overflow-wrap: anywhere; }
+  #drawer .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .score { display: inline-block; padding: 0 6px; border: 1px solid currentColor; }
+
+  /* boot */
+  #boot { position: fixed; inset: 0; z-index: 60; background: #020308; display: flex; align-items: center; justify-content: center; transition: opacity .6s; }
+  #boot pre { font: 13px/1.7 "JetBrains Mono"; color: var(--cyan); text-shadow: 0 0 8px rgba(0,240,255,.6); min-width: min(560px, 90vw); }
+  #boot .ok { color: var(--grn); } #boot .bad { color: var(--mag); } #boot .na { color: var(--dim); }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  .glabel { font: 11px "JetBrains Mono"; background: rgba(4,5,10,.92); border: 1px solid var(--cyan); padding: 6px 8px; color: var(--txt); }
+  #mobnav { display: none; }
+
+  @media (max-width: 1150px) { #left { width: 300px; } #right, #drawer { width: 280px; } }
+  @media (max-width: 820px) {
+    #top { padding: 8px 10px; gap: 8px; flex-wrap: wrap; } .logo { font-size: 16px; } .sub, #clock { display: none; }
+    #left, #right { display: none; top: 132px; left: 8px; right: 8px; width: auto; bottom: 150px; z-index: 20; }
+    body.show-left #left, body.show-right #right { display: flex; }
+    #drawer { top: 132px; left: 8px; right: 8px; width: auto; bottom: 150px; }
+    #bottom { left: 8px; right: 8px; grid-template-columns: 1fr; } #ticker, #status { display: none; }
+    #mobnav { display: flex; gap: 5px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .logo, .logo::before, .logo::after, .live, #ticker .run { animation: none; } }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+<div id="boot" role="status"><pre id="bootlog"></pre></div>
+
+<header id="top" class="hud">
+  <div>
+    <div class="logo" data-t="THREAT//MAP">THREAT<span>//</span>MAP</div>
+    <div class="sub">GLOBAL THREAT GRID · ATTACK / DEFENCE TELEMETRY</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="mobnav"><button id="mLeft">STREAM</button><button id="mRight">INTEL</button></div>
+  <div class="ctrl" role="group" aria-label="mode">
+    <button id="mLive" class="on"><span class="live"></span>LIVE</button>
+    <button id="mReplay"><span class="live replay"></span>REPLAY 24H</button>
+  </div>
+  <button id="feeds" title="feed status">FEEDS —</button>
+  <button id="bell" title="alerts">ALERTS <b id="bellN"></b></button>
+  <button id="snd" aria-pressed="false" title="sound">SFX OFF</button>
+  <div class="badge" id="infocon" title="SANS ISC Infocon level">INFOCON —</div>
+  <div id="clock">--:--:-- UTC</div>
+</header>
+
+<aside id="left" class="hud">
+  <div class="panel">
+    <h2>EVENT STREAM <small id="rate">0 ev/s</small></h2>
+    <div class="chips" id="chips"></div>
+    <div class="filters"><span>COUNTRY</span><select id="fCc" aria-label="country filter"><option value="">all</option></select></div>
+    <ul id="feed" aria-live="off"></ul>
+    <div class="legend" id="legend"></div>
+  </div>
+</aside>
+
+<aside id="right" class="hud">
+  <div class="panel">
+    <h2>DEFENCE GRID <small>SIM · 30S WINDOW</small></h2>
+    <div class="stats">
+      <div class="stat"><b id="sAtt">0</b><span>INTRUSIONS</span></div>
+      <div class="stat"><b id="sBlk">0</b><span>BLOCKED</span></div>
+      <div class="stat"><b id="sBan">0</b><span>IPS BANNED NOW</span></div>
+      <div class="stat"><b id="sRate">0%</b><span>BLOCK RATE</span></div>
+    </div>
+    <div class="ctl">
+      <label>ban after <span><input type="range" id="cThr" min="1" max="10" value="3"> <b id="vThr">3</b> hits</span></label>
+      <label>ban length <span><input type="range" id="cBan" min="1" max="30" value="4"> <b id="vBan">4</b> min</span></label>
+      <label>DShield blocklist on odd assets <input type="checkbox" id="cIntel" checked></label>
+      <label>AbuseIPDB blocklist (≥90) everywhere <input type="checkbox" id="cAbuse"></label>
+    </div>
+  </div>
+  <div class="panel"><h2>REAL MITIGATION <small>CLOUDFLARE L7 · 24H</small></h2><div class="bars wide g" id="mitig"></div></div>
+  <div class="panel"><h2>DDOS VECTORS <small>CLOUDFLARE L3 · 24H</small></h2><div class="bars wide o" id="vectors"></div></div>
+  <div class="panel">
+    <h2>ATT&amp;CK <small id="attSub">MITRE</small></h2>
+    <div class="tabs"><button id="aWild" class="on">IN THE WILD</button><button id="aLive">LIVE SIM</button></div>
+    <div class="bars wide c" id="attack"></div>
+  </div>
+  <div class="panel"><h2>TOP SOURCES <small>DSHIELD · 24H</small></h2><div class="bars" id="countries"></div></div>
+  <div class="panel"><h2>TARGETED PORTS <small>DSHIELD · 24H</small></h2><div class="bars c" id="ports"></div></div>
+  <div class="panel"><h2>CAMPAIGNS <small>OTX · 3D</small></h2><div class="list" id="pulses"></div></div>
+  <div class="panel"><h2>BOTNET C2 <small>FEODO</small></h2><div id="c2sum" class="list"></div></div>
+</aside>
+
+<aside id="drawer" aria-hidden="true"><div class="panel"><h2><span id="dTitle">DETAIL</span><button id="dClose" aria-label="close">✕</button></h2><div id="dBody"></div></div></aside>
+
+<footer id="bottom" class="hud">
+  <div class="panel" id="timeline">
+    <svg id="tl" preserveAspectRatio="none" aria-label="24 hour event timeline; click to jump replay"></svg>
+    <div id="tlmeta"><span id="tlL">-24h</span><span id="tlM">REAL EVENTS · LAST 24H</span><span id="tlR">now</span></div>
+  </div>
+  <div class="panel" id="ticker"><span class="lab">CISA KEV</span><span class="win"><span class="run" id="kev">loading…</span></span></div>
+  <div class="panel ctrl">
+    <button id="pause" aria-pressed="false">PAUSE</button>
+    <button data-speed="1" class="on">1×</button><button data-speed="3">3×</button><button data-speed="8">8×</button>
+    <button id="rot" class="on" aria-pressed="true">ORBIT</button>
+  </div>
+  <div class="panel" id="status">connecting…</div>
+</footer>
+
+<script>
+// REAL: DShield attackers/ports/infocon, Feodo C2, CISA KEV, Cloudflare Radar attack pairs + mitigation + vectors,
+//       OTX campaigns, AbuseIPDB scores/reports, abuse.ch URLhaus/ThreatFox, and the 24h timeline built from feed changes.
+// SIM:  live event timing (replayed from real 24h distributions), the 10 defended assets and their firewall decisions.
+const K = { // kind -> [colour, filter group, label]
+  ATTACK: ['#ff2a6d', 'sim'], BLOCKED: ['#00f0ff', 'sim'], BANNED: ['#f5d300', 'sim'],
+  WEB: ['#ff6ec7', 'web'], DDOS: ['#ff5e00', 'ddos'],
+  C2: ['#b967ff', 'c2'], TAKEDOWN: ['#05ffa1', 'c2'],
+  MALWARE: ['#ff00a0', 'malware'], IOC: ['#c56cf0', 'malware'],
+  KEV: ['#ff9e3d', 'intel'], CAMPAIGN: ['#7b8cff', 'intel'], REPORTED: ['#ff8fa3', 'intel'], SCAN: ['#ffd1e0', 'intel'],
+};
+const GROUPS = { sim: 'SIM ASSETS', web: 'WEB L7', ddos: 'DDOS L3', c2: 'C2', malware: 'MALWARE', intel: 'INTEL' };
+const ASSETS = [
+  ['LDN-01', 51.51, -0.13], ['FRA-02', 50.11, 8.68], ['NYC-03', 40.71, -74.0], ['IAD-04', 39.04, -77.49],
+  ['GRU-05', -23.55, -46.63], ['SIN-06', 1.35, 103.82], ['TYO-07', 35.68, 139.69], ['SYD-08', -33.87, 151.21],
+  ['JNB-09', -26.2, 28.05], ['BOM-10', 19.08, 72.88],
+].map(([name, lat, lng], i) => ({ name, lat, lng, intel: i % 2 === 0 }));
+const PORTS = { 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS', 80: 'HTTP', 81: 'HTTP-alt', 123: 'NTP', 135: 'MSRPC', 139: 'NetBIOS',
+  161: 'SNMP', 443: 'HTTPS', 445: 'SMB', 1433: 'MSSQL', 1900: 'SSDP', 2222: 'SSH-alt', 2375: 'Docker', 3306: 'MySQL', 3389: 'RDP',
+  5060: 'SIP', 5432: 'Postgres', 5555: 'ADB', 5900: 'VNC', 6379: 'Redis', 7547: 'TR-069', 8000: 'HTTP-alt', 8080: 'HTTP-proxy',
+  8443: 'HTTPS-alt', 8888: 'HTTP-alt', 9200: 'Elastic', 11211: 'Memcached', 27017: 'MongoDB', 37215: 'Huawei-RCE', 52869: 'UPnP' };
+const PORT_TECH = {}; // port -> ATT&CK technique for the simulated asset attacks
+[21, 22, 23, 25, 110, 143, 1433, 2222, 3306, 3389, 5432, 5900].forEach(p => PORT_TECH[p] = 'T1110');
+[135, 139, 445].forEach(p => PORT_TECH[p] = 'T1210');
+[80, 81, 443, 2375, 5555, 6379, 7547, 8000, 8080, 8443, 8888, 9200, 27017, 37215, 52869].forEach(p => PORT_TECH[p] = 'T1190');
+[19, 53, 123, 161, 389, 1900, 11211].forEach(p => PORT_TECH[p] = 'T1498');
+const TECH = { T1003: 'OS Credential Dumping', T1012: 'Query Registry', T1016: 'System Network Config Discovery', T1018: 'Remote System Discovery',
+  T1021: 'Remote Services', T1027: 'Obfuscated Files or Information', T1036: 'Masquerading', T1041: 'Exfiltration Over C2',
+  T1053: 'Scheduled Task/Job', T1055: 'Process Injection', T1057: 'Process Discovery', T1059: 'Command & Scripting Interpreter',
+  T1068: 'Exploitation for Privilege Escalation', T1070: 'Indicator Removal', T1071: 'Application Layer Protocol', T1078: 'Valid Accounts',
+  T1082: 'System Information Discovery', T1083: 'File & Directory Discovery', T1087: 'Account Discovery', T1090: 'Proxy',
+  T1098: 'Account Manipulation', T1102: 'Web Service', T1105: 'Ingress Tool Transfer', T1110: 'Brute Force', T1112: 'Modify Registry',
+  T1133: 'External Remote Services', T1136: 'Create Account', T1140: 'Deobfuscate/Decode Files', T1190: 'Exploit Public-Facing App',
+  T1204: 'User Execution', T1210: 'Exploitation of Remote Services', T1218: 'System Binary Proxy Execution', T1219: 'Remote Access Software',
+  T1486: 'Data Encrypted for Impact', T1496: 'Resource Hijacking', T1497: 'Virtualization/Sandbox Evasion', T1498: 'Network Denial of Service',
+  T1499: 'Endpoint Denial of Service', T1547: 'Boot/Logon Autostart', T1548: 'Abuse Elevation Control', T1552: 'Unsecured Credentials',
+  T1555: 'Credentials from Password Stores', T1562: 'Impair Defenses', T1566: 'Phishing', T1567: 'Exfiltration Over Web Service',
+  T1573: 'Encrypted Channel', T1574: 'Hijack Execution Flow', T1583: 'Acquire Infrastructure', T1588: 'Obtain Capabilities',
+  T1595: 'Active Scanning', T1608: 'Stage Capabilities' };
+
+const regionName = new Intl.DisplayNames(['en'], { type: 'region' });
+const country = cc => { try { return regionName.of(cc); } catch { return cc || '??'; } };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n));
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+const hhmm = ms => new Date(ms).toISOString().slice(11, 19);
+const isIp = s => /^\d{1,3}(\.\d{1,3}){3}$/.test(s || '');
+const flag = cc => /^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc].map(c => 0x1F1A5 + c.charCodeAt(0))) : '··';
+const pick = list => list[Math.floor(Math.random() * list.length)];
+const jit = (v, d) => v + (Math.random() - 0.5) * d;
+function weighted(list, w) {
+  let total = 0; for (const x of list) total += w(x);
+  let r = Math.random() * total;
+  for (const x of list) if ((r -= w(x)) <= 0) return x;
+  return list[list.length - 1];
+}
+const wEntries = obj => Object.entries(obj || {}).filter(([k, v]) => v > 0 && k !== 'other');
+
+let S = null, speed = 1, paused = false, mode = 'live', sound = false, attTab = 'wild';
+let arcs = [], rings = [], dirty = false, evCount = 0;
+const groupsOn = Object.fromEntries(Object.keys(GROUPS).map(g => [g, true]));
+let ccFilter = '';
+const def = { thr: 3, banMs: 4 * 60e3, intel: true, abuse: false };
+const firewall = new Map(); // ip -> { n, until }
+const outcomes = []; // [ms, kind] for the rolling window
+const tally = { att: 0, blk: 0 };
+const liveTech = {};
+
+// ---------- globe ----------
+const globe = Globe({ animateIn: true })($('globe'))
+  .backgroundColor('#04050a').showAtmosphere(true).atmosphereColor('#00f0ff').atmosphereAltitude(0.2)
+  .hexPolygonResolution(3).hexPolygonMargin(0.35).hexPolygonUseDots(true).hexPolygonColor(() => 'rgba(0, 240, 255, 0.55)')
+  .arcColor(d => d.colors).arcStroke(d => d.stroke).arcAltitudeAutoScale(0.45)
+  .arcsTransitionDuration(0) // default 1s grow-in restarts on every data update, which hides all arcs
+  .arcDashLength(0.5).arcDashGap(2).arcDashInitialGap(1).arcDashAnimateTime(1200)
+  .ringColor(d => t => rgba(d.color, 1 - t)).ringMaxRadius(d => d.r).ringPropagationSpeed(d => d.speed).ringRepeatPeriod(d => d.period)
+  .pointAltitude(d => d.alt).pointRadius(d => d.rad).pointColor(d => d.color).pointsMerge(false)
+  .pointLabel(d => `<div class="glabel">${d.label}</div>`).onPointClick(d => d.open())
+  .labelsData(ASSETS).labelText('name').labelSize(1.3).labelDotRadius(0.6).labelColor(() => '#05ffa1')
+  .labelResolution(2).labelAltitude(0.01)
+  .labelLabel(d => `<div class="glabel">DEFENDED ASSET ${d.name}<br>${d.intel ? 'odd asset: DShield blocklist' : 'reactive firewall only'}<br><span class="t">simulated</span></div>`);
+const mat = globe.globeMaterial();
+mat.color.set('#060a16'); mat.emissive.set('#02050d'); mat.shininess = 0.6;
+globe.controls().autoRotate = !matchMedia('(prefers-reduced-motion: reduce)').matches; globe.controls().autoRotateSpeed = 0.35;
+globe.pointOfView({ lat: 30, lng: 10, altitude: innerWidth < 820 ? 3.2 : 2.3 });
+addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
+fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+  .then(r => r.json()).then(g => globe.hexPolygonsData(g.features.filter(f => f.properties.ISO_A2 !== 'AQ')));
+
+const cent = cc => { const c = S?.centroids?.[cc]; return c ? { lat: jit(c[0], 4), lng: jit(c[1], 5) } : null; };
+function flyTo(lat, lng) {
+  globe.controls().autoRotate = false; $('rot').classList.remove('on');
+  globe.pointOfView({ lat, lng, altitude: 1.3 }, 1200);
+}
+
+function setPoints() {
+  const pts = [];
+  for (const a of S.attackers) pts.push({ lat: a.lat, lng: a.lng, color: a.abuse >= 90 ? 'rgba(255,94,0,.85)' : 'rgba(255,42,109,.7)', rad: 0.22,
+    alt: 0.002 + Math.log10(a.reports + 1) * 0.003, open: () => openAttacker(a),
+    label: `<b style="color:#ff2a6d">ATTACKER ${esc(a.ip)}</b><br>${esc(country(a.cc))}<br>${fmt(a.reports)} DShield reports${a.abuse ? `<br>AbuseIPDB score ${a.abuse}` : ''}<br><span class="t">click for detail</span>` });
+  for (const c of S.c2) pts.push({ lat: c.lat, lng: c.lng, color: c.status === 'online' ? '#b967ff' : '#05ffa1', rad: 0.5, alt: 0.03, open: () => openC2(c),
+    label: `<b style="color:${c.status === 'online' ? '#b967ff' : '#05ffa1'}">${esc(c.malware)} C2 · ${esc(c.status.toUpperCase())}</b><br>${esc(c.ip)}:${esc(c.port)}<br><span class="t">click for detail</span>` });
+  for (const i of S.threatfox) pts.push({ lat: i.lat, lng: i.lng, color: '#c56cf0', rad: 0.3, alt: 0.02, open: () => openIoc(i),
+    label: `<b style="color:#c56cf0">${esc(i.malware)}</b> ${esc(i.type)}<br>${esc(i.ip)}:${esc(i.port)}` });
+  for (const u of S.urlhaus) pts.push({ lat: u.lat, lng: u.lng, color: '#ff00a0', rad: 0.25, alt: 0.015, open: () => openIoc(u),
+    label: `<b style="color:#ff00a0">MALWARE URL</b> ${esc(u.threat)}<br>${esc(u.ip)} · ${esc(u.status)}` });
+  globe.pointsData(pts);
+}
+
+// ---------- event bus ----------
+function passes(ev) {
+  if (!groupsOn[K[ev.kind][1]]) return false;
+  if (ccFilter && ev.cc !== ccFilter && ev.cc2 !== ccFilter && !(ev.tg || []).includes(ccFilter)) return false;
+  return true;
+}
+function fire(ev) { // ev: {kind, text, t, cc, cc2, tg, from, to, at[], open}
+  if (!passes(ev)) return false;
+  const [c] = K[ev.kind];
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="t">${hhmm(ev.t || Date.now())}</span><span class="tag" style="color:${c}">${ev.kind}</span><span class="d">${ev.text}</span>`;
+  li.title = li.textContent;
+  li.onclick = () => { if (ev.open) ev.open(); const p = ev.to || ev.from || ev.at?.[0]; if (p) flyTo(p.lat, p.lng); };
+  const feed = $('feed'); feed.prepend(li);
+  while (feed.children.length > 70) feed.lastChild.remove();
+  const now = Date.now();
+  if (ev.from && ev.to) arcs.push({ startLat: ev.from.lat, startLng: ev.from.lng, endLat: ev.to.lat, endLng: ev.to.lng,
+    colors: [rgba(c, 0.05), rgba(c, 0.95)], stroke: ev.kind === 'BLOCKED' ? 0.35 : 0.7, die: now + 2400 });
+  for (const p of (ev.at || (ev.to ? [ev.to] : []))) rings.push({ lat: p.lat, lng: p.lng, color: c, r: ev.r || 4, speed: 4, period: 900, die: now + (ev.ringMs || 1500) });
+  dirty = true; evCount++; blip(ev.kind);
+  return true;
+}
+
+// ---------- live generators ----------
+function simAttack(now) {
+  const a = weighted(S.attackers, x => (x._w ??= Math.sqrt(x.reports))), p = weighted(S.ports, x => (x._w ??= Math.sqrt(x.records)));
+  const t = pick(ASSETS), fw = firewall.get(a.ip) || { n: 0, until: 0 };
+  let kind, why = '';
+  if (def.intel && t.intel) { kind = 'BLOCKED'; why = 'DShield list'; }
+  else if (def.abuse && a.abuse >= 90) { kind = 'BLOCKED'; why = `AbuseIPDB ${a.abuse}`; }
+  else if (now < fw.until) { kind = 'BLOCKED'; why = 'banned'; }
+  else if (++fw.n >= def.thr) { kind = 'BANNED'; fw.n = 0; fw.until = now + def.banMs; }
+  else kind = 'ATTACK';
+  const ev = { kind, cc: a.cc, t: now, from: a, to: t, open: () => openAttacker(a) };
+  if (!passes(ev)) return;
+  firewall.set(a.ip, fw);
+  const tech = PORT_TECH[p.port] || 'T1595';
+  liveTech[tech] = (liveTech[tech] || 0) + 1;
+  outcomes.push([now, kind]);
+  if (kind === 'BLOCKED') tally.blk++; else tally.att++;
+  ev.text = kind === 'BANNED' ? `auto-ban ${esc(a.ip)} @ ${t.name} (${def.banMs / 60e3}m)`
+    : `${esc(a.ip)} <span class="t">${esc(a.cc)}</span> → ${t.name}:${p.port}/${PORTS[p.port] || 'tcp'} <span class="t">${tech}${why ? ' · ' + esc(why) : ''}</span>`;
+  ev.r = kind === 'BANNED' ? 7 : kind === 'BLOCKED' ? 2.5 : 4;
+  fire(ev);
+}
+
+function radarArc() {
+  const r = S.radar || {};
+  const l7 = r.l7?.length, l3 = r.l3?.length;
+  if (!l7 && !l3) return;
+  const isWeb = l7 && (!l3 || Math.random() < 0.55);
+  const pair = weighted(isWeb ? r.l7 : r.l3, x => x.v);
+  const from = cent(pair.o), to = cent(pair.t);
+  if (!from || !to) return;
+  const how = isWeb ? weighted(wEntries(r.mitigation), ([, v]) => v)?.[0] : weighted(wEntries(r.vectors), ([, v]) => v)?.[0];
+  fire({ kind: isWeb ? 'WEB' : 'DDOS', cc: pair.o, cc2: pair.t, t: Date.now(), from, to, r: 5,
+    text: `${flag(pair.o)} ${esc(pair.o)} → ${flag(pair.t)} ${esc(pair.t)} <span class="t">${isWeb ? 'mitigated: ' : ''}${esc((how || '').replaceAll('_', ' '))} · ${pair.v.toFixed(2)}%</span>` });
+}
+
+function c2Pulse() {
+  if (!S.c2.length) return;
+  const c = pick(S.c2), on = c.status === 'online';
+  fire({ kind: on ? 'C2' : 'TAKEDOWN', cc: c.cc, t: Date.now(), at: [c], r: 9, ringMs: 4000, open: () => openC2(c),
+    text: on ? `${esc(c.malware)} C2 active ${esc(c.ip)}:${esc(c.port)} (${esc(c.cc)})` : `${esc(c.malware)} C2 ${esc(c.ip)} offline since ${esc(c.last_online || '?')}` });
+}
+
+function historyEvent(e, shownAt) { // real timeline event -> visual
+  const at = e.lat != null ? [{ lat: e.lat, lng: e.lng }] : (e.tg || []).map(cent).filter(Boolean);
+  const ev = { kind: e.k, cc: e.cc, tg: e.tg, t: shownAt ?? e.t * 1000, at, r: e.k === 'CAMPAIGN' ? 8 : 5, ringMs: 2500,
+    text: `${e.ip ? esc(e.ip) + ' ' : ''}${e.cc ? `<span class="t">${esc(e.cc)}</span> ` : ''}${esc(e.x)}${e.tg?.length ? ` <span class="t">→ ${e.tg.map(esc).join(' ')}</span>` : ''}${shownAt ? ` <span class="t">@${hhmm(e.t * 1000).slice(0, 5)}Z</span>` : ''}` };
+  if (e.ip && isIp(e.ip)) { const a = S.attackers.find(x => x.ip === e.ip); ev.open = () => (a ? openAttacker(a) : openIp(e)); }
+  fire(ev);
+}
+
+// ---------- replay ----------
+const DAYMS = 864e5;
+let playhead = 0, rpIdx = 0, liveIdx = 0;
+function setMode(m) {
+  mode = m; $('mLive').classList.toggle('on', m === 'live'); $('mReplay').classList.toggle('on', m === 'replay');
+  if (m === 'replay') seek(Date.now() - DAYMS);
+  $('tlM').textContent = m === 'replay' ? 'REPLAYING REAL EVENTS · CLICK TO JUMP' : 'REAL EVENTS · LAST 24H';
+  drawTimeline();
+}
+function seek(ms) { playhead = ms; rpIdx = (S?.events || []).findIndex(e => e.t * 1000 >= ms); if (rpIdx < 0) rpIdx = S?.events.length || 0; }
+
+function drawTimeline() {
+  const svg = $('tl'), W = 1000, H = 38, end = Date.now(), start = end - DAYMS, bins = new Array(96).fill(0), kinds = new Array(96).fill(null).map(() => ({}));
+  for (const e of S?.events || []) {
+    const i = Math.floor((e.t * 1000 - start) / DAYMS * 96);
+    if (i >= 0 && i < 96) { bins[i]++; kinds[i][e.k] = (kinds[i][e.k] || 0) + 1; }
+  }
+  const max = Math.max(1, ...bins), bw = W / 96;
+  let h = '';
+  bins.forEach((n, i) => {
+    if (!n) return;
+    const top = Object.entries(kinds[i]).sort((a, b) => b[1] - a[1])[0][0];
+    const bh = Math.max(2, Math.sqrt(n / max) * (H - 4));
+    h += `<rect x="${i * bw + 1}" y="${H - bh}" width="${bw - 2}" height="${bh}" fill="${rgba(K[top][0], 0.75)}"><title>${n} events · mostly ${top}</title></rect>`;
+  });
+  if (mode === 'replay') { const x = (playhead - start) / DAYMS * W; h += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="#f5d300" stroke-width="2"/>`; }
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = h;
+  $('tlL').textContent = hhmm(start).slice(0, 5) + 'Z';
+  $('tlR').textContent = mode === 'replay' ? `▶ ${hhmm(playhead).slice(0, 5)}Z` : 'now';
+}
+$('tl').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); setMode('replay'); seek(Date.now() - DAYMS + (e.clientX - r.left) / r.width * DAYMS); drawTimeline(); };
+
+// ---------- main loop ----------
+let acc = 0, accR = 0, lastFrame = performance.now(), nextC2 = 0, nextHist = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastFrame, 250); lastFrame = ts;
+  const now = Date.now();
+  if (S && !paused) {
+    if (mode === 'live') {
+      if (S.attackers.length && groupsOn.sim) { acc += dt / 1000 * 3 * speed * (0.6 + Math.random() * 0.8); while (acc >= 1) { simAttack(now); acc--; } }
+      accR += dt / 1000 * 1.6 * speed; while (accR >= 1) { radarArc(); accR--; }
+      if (now > nextC2) { c2Pulse(); nextC2 = now + 7000 / speed + Math.random() * 6000; }
+      if (now > nextHist && S.events.length) { historyEvent(S.events[liveIdx++ % S.events.length], now); nextHist = now + 1600 / speed; }
+    } else { // 24h of real events in ~3 min at 1x
+      playhead += dt * 480 * speed;
+      while (rpIdx < S.events.length && S.events[rpIdx].t * 1000 <= playhead) historyEvent(S.events[rpIdx++]);
+      if (playhead >= now) setMode('live');
+    }
+  }
+  // ponytail: full array rebuild on change is fine at <~200 arcs; switch to keyed updates if rates go way up
+  const na = arcs.filter(a => a.die > now), nr = rings.filter(r => r.die > now);
+  if (dirty || na.length !== arcs.length || nr.length !== rings.length) {
+    arcs = na; rings = nr; dirty = false; globe.arcsData(arcs); globe.ringsData(rings);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+setInterval(() => {
+  const now = Date.now();
+  $('clock').textContent = hhmm(now) + ' UTC';
+  $('rate').textContent = evCount + ' ev/s'; evCount = 0;
+  while (outcomes.length && outcomes[0][0] < now - 30e3) outcomes.shift();
+  const blk = outcomes.filter(o => o[1] === 'BLOCKED').length;
+  $('sAtt').textContent = fmt(tally.att); $('sBlk').textContent = fmt(tally.blk);
+  let banned = 0; for (const f of firewall.values()) if (f.until > now) banned++;
+  $('sBan').textContent = banned;
+  $('sRate').textContent = outcomes.length ? Math.round(blk / outcomes.length * 100) + '%' : '—';
+  if (attTab === 'live') renderAttack();
+  if (mode === 'replay' || now % 60e3 < 1000) drawTimeline();
+  if (S) $('status').textContent = `data ${new Date(S.updated * 1000).toLocaleTimeString()} · next pull ≤30 min`;
+}, 1000);
+
+// ---------- panels ----------
+function bars(el, rows, max) { // rows: [prefix, label, value, title?]
+  el.innerHTML = rows.map(([k, lbl, v, tip]) => `<div>${k != null ? `<span>${k}</span>` : ''}<span class="lbl" title="${esc(tip || lbl)}">${esc(lbl)}<i style="width:${Math.max(2, v / max * 100)}%"></i></span><em>${typeof v === 'number' && v < 100 && !Number.isInteger(v) ? v.toFixed(1) + '%' : fmt(v)}</em></div>`).join('') || '<span class="dim">no data</span>';
+}
+function renderAttack() {
+  let rows;
+  if (attTab === 'wild') {
+    const c = {};
+    for (const p of S.pulses) for (const id of new Set(p.attack.map(a => a.split('.')[0]))) c[id] = (c[id] || 0) + 1;
+    rows = Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 7);
+    $('attSub').textContent = `${S.pulses.length} OTX CAMPAIGNS`;
+  } else {
+    rows = Object.entries(liveTech).sort((a, b) => b[1] - a[1]).slice(0, 7);
+    $('attSub').textContent = 'PORT → TECHNIQUE';
+  }
+  bars($('attack'), rows.map(([id, n]) => [null, `${id} ${TECH[id] || ''}`, n]), rows[0]?.[1] || 1);
+}
+function render() {
+  const byCc = {};
+  for (const a of S.attackers) byCc[a.cc] = (byCc[a.cc] || 0) + a.reports;
+  const top = Object.entries(byCc).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  bars($('countries'), top.map(([cc, v]) => [flag(cc), country(cc), v]), top[0]?.[1] || 1);
+  const ports = S.ports.slice(0, 6);
+  bars($('ports'), ports.map(p => [':', `${p.port} ${PORTS[p.port] || ''} · ${PORT_TECH[p.port] || 'T1595'}`, p.records]), ports[0]?.records || 1);
+  const mit = wEntries(S.radar?.mitigation).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  bars($('mitig'), mit.map(([k, v]) => [null, k.replaceAll('_', ' '), v]), 100);
+  const vec = Object.entries(S.radar?.vectors || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  bars($('vectors'), vec.map(([k, v]) => [null, k, v]), 100);
+  renderAttack();
+  $('pulses').innerHTML = S.pulses.slice(0, 7).map(p => `<a href="https://otx.alienvault.com/pulse/${encodeURIComponent(p.id)}" target="_blank" rel="noopener noreferrer" title="${esc(p.name)}">${p.adversary ? `<span class="pill">[${esc(p.adversary)}]</span> ` : ''}${esc(p.name)}</a>`).join('') || '<span class="dim">no OTX key / no data</span>';
+  const on = S.c2.filter(c => c.status === 'online').length;
+  $('c2sum').innerHTML = `<div><span style="color:#b967ff">${on} ONLINE</span> · <span style="color:#05ffa1">${S.c2.length - on} TAKEN DOWN</span></div>` +
+    S.c2.slice(0, 5).map(c => `<div>${esc(c.malware)} ${esc(c.ip)} <span style="color:${c.status === 'online' ? '#b967ff' : '#05ffa1'}">${esc(c.status)}</span></div>`).join('');
+  const ic = S.infocon || 'unknown', icc = { green: '#05ffa1', yellow: '#f5d300', orange: '#ff9e3d', red: '#ff2a6d' }[ic] || '#5b6a92';
+  $('infocon').textContent = 'INFOCON ' + ic.toUpperCase(); $('infocon').style.color = icc;
+  const items = S.kev.map(v => `<b>${esc(v.cveID)}</b> ${esc(v.vendorProject)} ${esc(v.product)}: ${esc(v.vulnerabilityName)} <span class="t">[added ${esc(v.dateAdded)}]</span>${v.knownRansomwareCampaignUse === 'Known' ? ' <span class="rw">RANSOMWARE</span>' : ''}`).join('   ◆   ');
+  $('kev').innerHTML = `${items}   ◆   <span class="t">${S.kev_total} total known-exploited</span>   ◆   `.repeat(2);
+  const srcs = Object.entries(S.sources), ok = srcs.filter(([, s]) => s.ok).length;
+  $('feeds').textContent = `FEEDS ${ok}/${srcs.length}`; $('feeds').style.color = ok === srcs.length ? '' : '#f5d300';
+  const ccs = new Set([...S.attackers.map(a => a.cc), ...(S.radar?.l7 || []).flatMap(p => [p.o, p.t]), ...(S.radar?.l3 || []).flatMap(p => [p.o, p.t])]);
+  const sel = $('fCc'), cur = sel.value;
+  sel.innerHTML = '<option value="">all</option>' + [...ccs].filter(Boolean).sort((a, b) => country(a).localeCompare(country(b))).map(cc => `<option value="${esc(cc)}">${flag(cc)} ${esc(country(cc))}</option>`).join('');
+  sel.value = cur;
+  setPoints(); drawTimeline(); updateBell();
+}
+
+// ---------- drawer (drill-down, feeds, alerts) ----------
+function drawer(title, html) {
+  $('dTitle').textContent = title; $('dBody').innerHTML = html;
+  $('drawer').classList.add('open'); $('drawer').setAttribute('aria-hidden', 'false');
+}
+$('dClose').onclick = () => { $('drawer').classList.remove('open'); $('drawer').setAttribute('aria-hidden', 'true'); };
+const dl = rows => `<dl>${rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+const ext = (href, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer"><button>${label}</button></a>`;
+const scoreTag = s => s == null ? null : `<span class="score" style="color:${s >= 90 ? '#ff2a6d' : s >= 50 ? '#f5d300' : '#05ffa1'}">${s}/100</span>`;
+function ipLinks(ip) {
+  const q = encodeURIComponent(ip);
+  return `<div class="acts">${ext(`https://isc.sans.edu/ipinfo/${q}`, 'SANS ISC')}${ext(`https://www.abuseipdb.com/check/${q}`, 'ABUSEIPDB')}${ext(`https://otx.alienvault.com/indicator/ip/${q}`, 'OTX')}</div>`;
+}
+function openAttacker(a) {
+  const i = a.info || {}, fw = firewall.get(a.ip), now = Date.now();
+  drawer('ATTACKER', `<div class="big">${esc(a.ip)}</div>` + dl([
+    ['country', `${flag(a.cc)} ${esc(country(a.cc))}`], ['DShield reports', fmt(a.reports) + ' (24h)'], ['sensors hit', a.targets],
+    ['abuse score', scoreTag(i.score ?? a.abuse)], ['ISP', esc(i.isp)], ['usage', esc(i.usage)], ['domain', esc(i.domain)],
+    ['Tor exit', i.tor == null ? null : i.tor ? 'YES' : 'no'], ['abuse reports', i.reports != null ? `${fmt(i.reports)} by ${i.users} users (30d)` : null],
+    ['last reported', esc(i.last)], ['firewall (sim)', fw ? (fw.until > now ? `<span style="color:#f5d300">BANNED ${Math.ceil((fw.until - now) / 1000)}s</span>` : `${fw.n} strikes`) : 'unseen'],
+  ]) + (a.info ? '' : '<p class="dim" style="margin-top:8px">ISP detail is fetched for the busiest attackers within the AbuseIPDB free budget.</p>') +
+  ipLinks(a.ip) + `<div class="acts"><button id="fly">FLY TO</button></div>`);
+  $('fly').onclick = () => flyTo(a.lat, a.lng);
+}
+function openC2(c) {
+  drawer('BOTNET C2', `<div class="big">${esc(c.ip)}:${esc(c.port)}</div>` + dl([
+    ['malware', esc(c.malware)], ['status', `<span style="color:${c.status === 'online' ? '#b967ff' : '#05ffa1'}">${esc(c.status)}</span>`],
+    ['network', esc(c.as)], ['country', `${flag(c.cc)} ${esc(country(c.cc))}`], ['last online', esc(c.last_online)],
+  ]) + `<div class="acts">${ext(`https://feodotracker.abuse.ch/browse/host/${encodeURIComponent(c.ip)}/`, 'FEODO')}</div>` + ipLinks(c.ip));
+}
+function openIoc(i) {
+  drawer(i.malware ? 'THREATFOX IOC' : 'URLHAUS', `<div class="big">${esc(i.ip)}${i.port ? ':' + esc(i.port) : ''}</div>` + dl([
+    ['malware', esc(i.malware || i.threat)], ['type', esc(i.type)], ['confidence', i.conf != null ? i.conf + '%' : null], ['status', esc(i.status)],
+    ['tags', esc((i.tags || []).join(', '))], ['first seen', hhmm(i.t * 1000) + 'Z'], ['country', `${flag(i.cc)} ${esc(country(i.cc))}`],
+  ]) + ipLinks(i.ip));
+}
+function openIp(e) { drawer(e.k, `<div class="big">${esc(e.ip)}</div>` + dl([['event', esc(e.x)], ['country', `${flag(e.cc)} ${esc(country(e.cc))}`], ['time', hhmm(e.t * 1000) + 'Z']]) + ipLinks(e.ip)); }
+
+const SRC_INFO = {
+  dshield: ['SANS ISC DShield', 'https://isc.sans.edu/', 'free, keyless'], feodo: ['abuse.ch Feodo Tracker', 'https://feodotracker.abuse.ch/', 'free, keyless'],
+  kev: ['CISA KEV', 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', 'public domain'],
+  radar: ['Cloudflare Radar', 'https://radar.cloudflare.com/', 'free API · data CC BY-NC 4.0'],
+  abusech: ['abuse.ch URLhaus + ThreatFox', 'https://abuse.ch/', 'free Auth-Key, fair use'],
+  otx: ['LevelBlue OTX', 'https://otx.alienvault.com/', 'free account'],
+  abuseipdb: ['AbuseIPDB', 'https://www.abuseipdb.com/', 'free plan: 5 blacklist + 1000 checks/day'],
+};
+$('feeds').onclick = () => {
+  drawer('DATA FEEDS', `<div class="list">` + Object.entries(S?.sources || {}).map(([k, s]) => {
+    const [name, url, lic] = SRC_INFO[k] || [k, '#', ''];
+    const st = s.ok ? `<span style="color:#05ffa1">● OK</span>` : s.ok === false ? `<span style="color:#ff2a6d">● ${esc(s.err)}</span>${s.at ? ' <span class="t">(showing last good data)</span>' : ''}` : `<span class="t">● ${esc(s.err)}</span>`;
+    return `<div style="white-space:normal;margin-bottom:6px"><a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a> ${st}<br><span class="t">${lic}</span></div>`;
+  }).join('') + `<div class="t" style="white-space:normal;margin-top:8px">IP geolocation by <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">DB-IP</a> (CC BY 4.0). Globe: globe.gl / Natural Earth.<br>Live timing, assets and firewall decisions are simulated from the real distributions.</div></div>`);
+};
+
+// alerts
+const seenAlert = () => +(localStorage.getItem('tm_alert_seen') || 0);
+function updateBell() {
+  const n = (S?.alerts || []).filter(a => a.t > seenAlert()).length;
+  $('bellN').textContent = n ? n : '';
+}
+$('bell').onclick = () => {
+  const list = (S?.alerts || []).slice().reverse();
+  drawer('ALERTS', `<div class="list">${list.map(a => `<div style="white-space:normal"><span class="t">${new Date(a.t * 1000).toLocaleString()}</span><br>${esc(a.x)}</div>`).join('') || '<span class="dim">no alerts yet: takedowns, new online C2s, new CISA KEVs and Infocon changes land here</span>'}</div>
+    <div class="acts"><button id="notif">${'Notification' in window && Notification.permission === 'granted' ? 'BROWSER NOTIFICATIONS ON' : 'ENABLE BROWSER NOTIFICATIONS'}</button></div>
+    <p class="t" style="margin-top:8px">Phone push: set an ntfy topic as the NTFY_TOPIC repo secret (see README).</p>`);
+  $('notif').onclick = () => 'Notification' in window && Notification.requestPermission().then(p => $('notif').textContent = p === 'granted' ? 'BROWSER NOTIFICATIONS ON' : 'BLOCKED BY BROWSER');
+  if (S?.alerts?.length) localStorage.setItem('tm_alert_seen', S.alerts[S.alerts.length - 1].t);
+  updateBell();
+};
+
+// ---------- sound ----------
+let actx = null, lastBlip = 0;
+const TONE = { ATTACK: [196, 'square'], BLOCKED: [660, 'sine'], BANNED: [880, 'triangle'], WEB: [330, 'sawtooth'], DDOS: [110, 'sawtooth'],
+  C2: [523, 'square'], TAKEDOWN: [1046, 'sine'], KEV: [740, 'triangle'], CAMPAIGN: [392, 'triangle'], REPORTED: [294, 'sine'], SCAN: [587, 'sine'], MALWARE: [247, 'square'], IOC: [277, 'square'] };
+function blip(kind) {
+  if (!sound || !actx) return;
+  const now = performance.now(); if (now - lastBlip < 90) return; lastBlip = now;
+  const [f, type] = TONE[kind] || [440, 'sine'], o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.6, t + 0.12);
+  g.gain.setValueAtTime(0.035, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.15);
+}
+$('snd').onclick = e => { sound = !sound; if (sound && !actx) actx = new AudioContext(); e.target.textContent = sound ? 'SFX ON' : 'SFX OFF'; e.target.classList.toggle('on', sound); e.target.setAttribute('aria-pressed', sound); };
+
+// ---------- controls ----------
+$('chips').innerHTML = Object.entries(GROUPS).map(([g, l]) => `<button class="on" data-g="${g}" aria-pressed="true">${l}</button>`).join('');
+$('chips').onclick = e => { const g = e.target.dataset?.g; if (!g) return; groupsOn[g] = !groupsOn[g]; e.target.classList.toggle('on', groupsOn[g]); e.target.setAttribute('aria-pressed', groupsOn[g]); };
+$('legend').innerHTML = Object.entries(K).map(([k, [c]]) => `<span><i style="background:${c}"></i>${k.toLowerCase()}</span>`).join('');
+$('fCc').onchange = e => { ccFilter = e.target.value; const c = S?.centroids?.[ccFilter]; if (c) flyTo(c[0], c[1]); };
+$('cThr').oninput = e => { def.thr = +e.target.value; $('vThr').textContent = def.thr; };
+$('cBan').oninput = e => { def.banMs = +e.target.value * 60e3; $('vBan').textContent = e.target.value; };
+$('cIntel').onchange = e => def.intel = e.target.checked;
+$('cAbuse').onchange = e => def.abuse = e.target.checked;
+$('aWild').onclick = () => { attTab = 'wild'; $('aWild').classList.add('on'); $('aLive').classList.remove('on'); renderAttack(); };
+$('aLive').onclick = () => { attTab = 'live'; $('aLive').classList.add('on'); $('aWild').classList.remove('on'); renderAttack(); };
+$('mLive').onclick = () => setMode('live');
+$('mReplay').onclick = () => setMode('replay');
+$('pause').onclick = e => { paused = !paused; e.target.classList.toggle('on', paused); e.target.setAttribute('aria-pressed', paused); e.target.textContent = paused ? 'RESUME' : 'PAUSE'; };
+document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => { speed = +b.dataset.speed; document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('on', x === b)); });
+$('rot').onclick = e => { const c = globe.controls(); c.autoRotate = !c.autoRotate; e.target.classList.toggle('on', c.autoRotate); e.target.setAttribute('aria-pressed', c.autoRotate); };
+$('mLeft').onclick = () => { document.body.classList.toggle('show-left'); document.body.classList.remove('show-right'); };
+$('mRight').onclick = () => { document.body.classList.toggle('show-right'); document.body.classList.remove('show-left'); };
+addEventListener('keydown', e => { if (e.key === 'Escape') $('dClose').click(); if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('pause').click(); } });
+
+// ---------- boot + data ----------
+async function boot(s) {
+  const log = $('bootlog'), fast = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const line = async (html, ms = 140) => { log.innerHTML += html + '\n'; if (!fast) await new Promise(r => setTimeout(r, ms)); };
+  $('boot').onclick = () => $('boot').classList.add('gone');
+  await line('THREAT//MAP v0.2 :: global threat grid', 300);
+  await line(`<span class="t">uplink ${new Date(s.updated * 1000).toISOString()}</span>`);
+  for (const [k, st] of Object.entries(s.sources)) {
+    const name = (SRC_INFO[k]?.[0] || k).padEnd(30, '.');
+    await line(`> link ${esc(name)} ${st.ok ? '<span class="ok">OK</span>' : st.ok === false ? `<span class="bad">FAIL ${esc(st.err)}</span>` : '<span class="na">OFF (no key)</span>'}`);
+  }
+  await line(`> ${s.attackers.length} hostile IPs · ${s.c2.length} C2 · ${s.events.length} timeline events`, 220);
+  await line('<span class="ok">GRID ONLINE</span>', 500);
+  $('boot').classList.add('gone');
+}
+
+let lastUpdated = null, booted = false, knownAlert = null;
+async function refresh() {
+  try {
+    const s = await (await fetch('data/state.json', { cache: 'no-store' })).json();
+    if (s.updated === lastUpdated) return;
+    const newAlerts = knownAlert == null ? [] : s.alerts.filter(a => a.t > knownAlert);
+    knownAlert = s.alerts.length ? s.alerts[s.alerts.length - 1].t : 0;
+    lastUpdated = s.updated; S = s; liveIdx = 0; render();
+    if ('Notification' in window && Notification.permission === 'granted') newAlerts.forEach(a => new Notification('threatmap', { body: a.x }));
+    if (!booted) { booted = true; boot(s); }
+  } catch (e) {
+    $('status').textContent = '⚠ data unavailable';
+    if (!booted) $('bootlog').textContent = 'THREAT//MAP :: waiting for data/state.json …\nrun: python3 build.py';
+  }
+}
+refresh(); setInterval(refresh, 60e3);
+</script>
+</body>
+</html>
