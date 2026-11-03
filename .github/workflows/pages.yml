@@ -4,7 +4,7 @@ on:
     - cron: "17 * * * *" # hourly: ~1,500 Actions min/month, inside the free private-repo allowance. Public repo? */20 is free too.
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, mvp]
 permissions:
   contents: read
   pages: write
