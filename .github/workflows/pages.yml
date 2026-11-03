@@ -1,0 +1,46 @@
+name: build-and-deploy
+on:
+  schedule:
+    - cron: "17 * * * *" # hourly: ~1,500 Actions min/month, inside the free private-repo allowance. Public repo? */20 is free too.
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      # history, last-good feed data, AbuseIPDB budget + geo DB survive between runs here (no data commits)
+      - uses: actions/cache/restore@v6
+        with:
+          path: cache
+          key: threatmap-${{ github.run_id }}
+          restore-keys: threatmap-
+      - run: python3 build.py test && python3 build.py
+        env:
+          RADAR_TOKEN: ${{ secrets.RADAR_TOKEN }}
+          ABUSECH_KEY: ${{ secrets.ABUSECH_KEY }}
+          ABUSEIPDB_KEY: ${{ secrets.ABUSEIPDB_KEY }}
+          OTX_KEY: ${{ secrets.OTX_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      - uses: actions/cache/save@v6
+        with:
+          path: cache
+          key: threatmap-${{ github.run_id }}
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web
+      - id: deploy
+        uses: actions/deploy-pages@v5
